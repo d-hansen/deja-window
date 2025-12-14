@@ -200,6 +200,32 @@ export default class DejaWindowExtension extends Extension {
             }
         };
 
+        // Helper to handle window changes. Schedules a timeout to save the window's state.
+        const handleWindowChange = (window) => {
+            const rect = window.get_frame_rect();
+            if (handle.timeoutId) {
+                GLib.source_remove(handle.timeoutId);
+                handle.timeoutId = 0;
+            }
+
+            // Dynamically get current config to respect live changes
+            const currentConfig = this._getConfigForWindow(wmClass);
+            if (!currentConfig) {
+                console.log('[DejaWindow] No config found for:', wmClass);
+                return; // Should not happen if cleanup works, but safety first
+            }
+
+            // Schedule a timeout to save the window's state
+            handle.timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                const isMaximized = window.maximized_horizontally || window.maximized_vertically;
+                this._performSave(wmClass, rect.x, rect.y, rect.width, rect.height,
+                    currentConfig.restore_size, currentConfig.restore_pos,
+                    currentConfig.restore_maximized, isMaximized);
+                handle.timeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+
         // Helper to handle window unmanaging. Saves the window's state.
         const handleWindowUnmanaging = () => {
             const rect = window.get_frame_rect();
@@ -207,6 +233,7 @@ export default class DejaWindowExtension extends Extension {
 
             const currentConfig = this._getConfigForWindow(wmClass);
             if (!currentConfig) {
+                console.log('[DejaWindow] No config found for:', wmClass);
                 return;
             }
 
@@ -218,12 +245,14 @@ export default class DejaWindowExtension extends Extension {
             this._cleanupWindow(window);
         };
 
-        // Connect to window shown signals.
+        // Connect to window signals
         const idShown = window.connect('shown', () => handleWindowShown());
         const idUnmap = window.connect('unmanaging', () => handleWindowUnmanaging());
+        const idSize = window.connect('size-changed', () => handleWindowChange(window));
+        const idPos = window.connect('position-changed', () => handleWindowChange(window));
 
         // Store signal IDs for cleanup
-        handle.signalIds.push(idShown, idUnmap);
+        handle.signalIds.push(idShown, idUnmap, idSize, idPos);
     }
 
     // Applies the saved size and/or position, or falls back to centering if position is invalid/not requested.
@@ -280,6 +309,61 @@ export default class DejaWindowExtension extends Extension {
             targetX = workArea.x + (workArea.width - targetW) / 2;
             targetY = workArea.y + (workArea.height - targetH) / 2;
         }
+
+        // Iterative collision detection
+        // We only care about collision if we have a valid target position (either saved or centered)
+        // and we want to avoid perfect overlap with existing windows of the same class.
+
+        // Get all windows on the same workspace
+        const windows = workspace.list_windows();
+
+        // Filter for windows of the same class that are visible (not hidden/minimized)
+        const others = windows.filter(w => {
+            return w !== window &&
+                w.get_wm_class() === wmClass &&
+                !w.minimized &&
+                w.showing_on_its_workspace();
+        });
+
+        // Loop to find a free position
+        // We limit iterations to avoid infinite loops (e.g. if screen is full)
+        const MAX_ITERATIONS = 50;
+
+        const OFFSET_STEP = 50; // Approximate title bar height
+        const TOLERANCE = 10; // Pixel tolerance for "overlap"
+
+        for (let i = 0; i < MAX_ITERATIONS; i++) {
+            let collision = false;
+
+            for (const other of others) {
+                const otherRect = other.get_frame_rect();
+
+                // Check if 'other' window is at the current candidate position (roughly)
+                // We mainly care about the top-left corner matching, which causes the exact overlap occlusion.
+                const dist = Math.abs(otherRect.x - targetX) + Math.abs(otherRect.y - targetY);
+
+                if (dist < TOLERANCE) {
+                    collision = true;
+                    break;
+                }
+            }
+
+            if (collision) {
+                // Apply offset and try again
+                targetX += OFFSET_STEP;
+                targetY += OFFSET_STEP;
+            } else {
+                // No collision at this position, we are good
+                break;
+            }
+        }
+
+        // Final check to ensure we didn't drift out of the work area completely
+        // If we did, we might want to clamp or just accept it. 
+        // For now, let's just clamp the top-left to be somewhat visible.
+        if (targetX > workArea.x + workArea.width - 50) targetX = workArea.x + workArea.width - 50;
+        if (targetY > workArea.y + workArea.height - 50) targetY = workArea.y + workArea.height - 50;
+
 
         console.log(`[DejaWindow] Applying State for ${wmClass}: ${targetW}x${targetH} @ ${targetX},${targetY}`);
 
