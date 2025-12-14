@@ -176,68 +176,54 @@ export default class DejaWindowExtension extends Extension {
         };
         this._handles.set(window, handle);
 
-        // Function to schedule a delayed save operation
-        const scheduleSave = (rect) => {
-            if (handle.timeoutId) {
-                GLib.source_remove(handle.timeoutId);
-                handle.timeoutId = 0;
-            }
+        // Helper to handle window shown. Logs the window's frame rect and checks if we should restore the window.
+        const handleWindowShown = () => {
+            let rect = window.get_frame_rect();
+            console.log(`[DejaWindow] Window shown ${wmClass}: ${rect.width}x${rect.height} @ ${rect.x}, ${rect.y}`);
 
-            // Dynamically get current config to respect live changes
             const currentConfig = this._getConfigForWindow(wmClass);
             if (!currentConfig) {
-                console.log('[DejaWindow] No config found for:', wmClass);
-                return; // Should not happen if cleanup works, but safety first
-            }
-
-            handle.timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                const isMaximized = window.maximized_horizontally || window.maximized_vertically;
-                this._performSave(wmClass, rect.x, rect.y, rect.width, rect.height,
-                    currentConfig.restore_size, currentConfig.restore_pos,
-                    currentConfig.restore_maximized, isMaximized);
-                handle.timeoutId = 0;
-                return GLib.SOURCE_REMOVE;
-            });
-        };
-
-        // Helper to handle window changes. Re-applies restore settings if needed.
-        const handleWindowChange = () => {
-            // Re-fetch config to ensure we use latest settings (e.g. user toggled restore off)
-            const currentConfig = this._getConfigForWindow(wmClass);
-            if (!currentConfig) {
-                // If config is gone, we should have been cleaned up, but abort here just in case
                 return;
             }
 
-            const restoreSize = currentConfig.restore_size;
-            const restorePos = currentConfig.restore_pos;
-            const restoreMaximized = currentConfig.restore_maximized;
-            const needsRestore = restoreSize || restorePos || restoreMaximized;
+            // Check if we should restore the window
+            const needsRestore = currentConfig.restore_size || currentConfig.restore_pos || currentConfig.restore_maximized;
 
+            // Apply saved state if needed
             if (!handle.isRestoreApplied) {
                 handle.isRestoreApplied = true;
                 if (needsRestore) {
-                    this._applySavedState(window, wmClass, restoreSize, restorePos, restoreMaximized);
+                    this._applySavedState(window, wmClass, currentConfig.restore_size, currentConfig.restore_pos, currentConfig.restore_maximized);
                 } else {
                     this._centerWindow(window);
                 }
             }
-
-            const rect = window.get_frame_rect();
-            scheduleSave(rect);
         };
 
-        // Connect signals for window changes
-        const idSize = window.connect('size-changed', () => handleWindowChange());
-        const idPos = window.connect('position-changed', () => handleWindowChange());
+        // Helper to handle window unmanaging. Saves the window's state.
+        const handleWindowUnmanaging = () => {
+            const rect = window.get_frame_rect();
+            const isMaximized = window.maximized_horizontally || window.maximized_vertically;
 
-        // Handle window destruction to auto-cleanup
-        const idUnmap = window.connect('unmanaging', () => {
+            const currentConfig = this._getConfigForWindow(wmClass);
+            if (!currentConfig) {
+                return;
+            }
+
+            console.log(`[DejaWindow] Window unmanaged ${wmClass}: ${rect.width}x${rect.height} @ ${rect.x}, ${rect.y}`);
+
+            this._performSave(wmClass, rect.x, rect.y, rect.width, rect.height,
+                currentConfig.restore_size, currentConfig.restore_pos,
+                currentConfig.restore_maximized, isMaximized);
             this._cleanupWindow(window);
-        });
+        };
+
+        // Connect to window shown signals.
+        const idShown = window.connect('shown', () => handleWindowShown());
+        const idUnmap = window.connect('unmanaging', () => handleWindowUnmanaging());
 
         // Store signal IDs for cleanup
-        handle.signalIds.push(idSize, idPos, idUnmap);
+        handle.signalIds.push(idShown, idUnmap);
     }
 
     // Applies the saved size and/or position, or falls back to centering if position is invalid/not requested.

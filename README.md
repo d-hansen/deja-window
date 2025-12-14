@@ -2,7 +2,14 @@
 
 **Deja Window** is a GNOME Shell extension that gives you full control over your window geometry. It automatically restores the size, position, and maximized state of specific applications when they open.
 
-Originally designed to fix window restoration issues with modern terminals (like Ghostty) on GNOME/Wayland, it has evolved into a general-purpose window state manager.
+## **🤔 Why Deja Window?**
+
+In "vanilla" GNOME, windows typically open either centered or in a upper-left layout. This behavior stems from two main factors:
+
+1. **GNOME's Philosophy**: The design dictates that the Window Manager (Mutter) should control window placement to avoid off-screen windows or chaotic overlaps, rather than letting individual apps decide.  
+2. **Wayland Constraints**: For security and isolation, the Wayland protocol does not natively allow applications to know their absolute global coordinates on the screen. This makes it technically impossible for most apps to "remember" and restore their own position after closing.
+
+**Deja Window** bridges this gap by acting as an external memory for your window layout, forcing the desired position and size that the OS or the apps themselves cannot natively restore.
 
 ## **🚀 Features**
 
@@ -12,6 +19,8 @@ Originally designed to fix window restoration issues with modern terminals (like
 * **Modular Restoration**: Choose to restore size, position, and maximized state independently for each app.  
 * **Smart Centering**: Automatically centers windows that are configured but haven't been saved yet.  
 * **Wayland Ready**: Handles the specific timing constraints of window management on Wayland.
+
+**Compatibility Note**: While this extension works with the majority of standard applications, some apps utilize custom layout mechanisms or non-standard toolkits that may override or ignore the extension's positioning attempts.
 
 ## **📦 Installation**
 
@@ -24,10 +33,10 @@ Originally designed to fix window restoration issues with modern terminals (like
    cd deja-window
 
 3. Install the extension:  
-   \# Create the directory if it doesn't exist  
+   \# Create the directory if it doesn't exist    
    mkdir \-p \~/.local/share/gnome-shell/extensions/deja-window@mcast.gnomext.com
 
-   \# Copy files  
+   \# Copy files    
    cp \-r \* \~/.local/share/gnome-shell/extensions/deja-window@mcast.gnomext.com/
 
 4. Log out and log back in (or restart GNOME Shell on X11 with Alt+F2, then r).  
@@ -53,12 +62,13 @@ Open the extension preferences to start managing your windows.
 
 **Why isn't my window restoring?**
 
-* Ensure the WM\_CLASS is correct.  
-* On Wayland, some applications may override GNOME's positioning hints during their own startup phase. Deja Window uses a delay mechanism to enforce your settings, but extremely slow apps might need a retry.
+* **Check the WM\_CLASS**: Ensure it matches exactly (or your Regex is correct).  
+* **Wayland Timing**: On Wayland, some applications may override GNOME's positioning hints during their own startup phase. Deja Window uses a delay mechanism to enforce your settings, but extremely slow apps might need a retry.  
+* **Custom Layouts**: Some applications (like certain IDEs or games) enforce their own window management logic that fights against the Window Manager. In these rare cases, the extension might not be able to force the position.
 
 **How do I reset the saved positions?**
 
-* Currently, you can remove the configuration for the specific app in the settings and re-add it, or use dconf to clear the window-app-states key.
+* Currently, you can remove the configuration for the specific app in the settings and re-add it, or use dconf/gsettings to clear the window-app-states key.
 
 ## **📄 License**
 
