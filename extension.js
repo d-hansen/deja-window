@@ -69,6 +69,7 @@ export default class DejaWindowExtension extends Extension {
         }
 
         this._settings = null;
+        this._configs = [];
     }
 
     _updateConfigs() {
