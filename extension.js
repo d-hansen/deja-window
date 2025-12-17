@@ -452,7 +452,11 @@ export default class DejaWindowExtension extends Extension {
 
                 // Switch to desktop if configured
                 if (config.switch_to_workspace && ws !== global.workspace_manager.get_active_workspace()) {
-                    ws.activate(global.get_current_time());
+                    // Slight delay to ensure the window is visually positioned before switching
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                        ws.activate(global.get_current_time());
+                        return GLib.SOURCE_REMOVE;
+                    });
                 }
             }
         }
