@@ -115,6 +115,11 @@ export default class DejaWindowPreferences extends ExtensionPreferences {
                 restore_size: false,
                 restore_pos: false,
                 restore_maximized: false,
+                restore_workspace: false,
+                switch_to_workspace: false,
+                restore_minimized: false,
+                restore_above: false,
+                restore_sticky: false,
                 is_regex: isRegex
             });
             saveConfigs(configs);
@@ -204,6 +209,77 @@ export default class DejaWindowPreferences extends ExtensionPreferences {
                 });
                 maxRow.add_suffix(maxSwitch);
                 row.add_row(maxRow);
+
+                // Workspace Switch
+                const workspaceRow = new Adw.ActionRow({
+                    title: 'Restore Desktop'
+                });
+                const workspaceSwitch = new Gtk.Switch({
+                    active: config.restore_workspace || false,
+                    valign: Gtk.Align.CENTER
+                });
+                workspaceSwitch.connect('notify::active', () => {
+                    updateConfig(config.wm_class, 'restore_workspace', workspaceSwitch.active);
+                });
+                workspaceRow.add_suffix(workspaceSwitch);
+                row.add_row(workspaceRow);
+
+                // Switch to Workspace Switch
+                const switchWorkspaceRow = new Adw.ActionRow({
+                    title: 'Switch to Desktop',
+                    subtitle: 'Activate the desktop where the window is restored'
+                });
+                const switchWorkspaceSwitch = new Gtk.Switch({
+                    active: config.switch_to_workspace || false,
+                    valign: Gtk.Align.CENTER
+                });
+                switchWorkspaceSwitch.connect('notify::active', () => {
+                    updateConfig(config.wm_class, 'switch_to_workspace', switchWorkspaceSwitch.active);
+                });
+                switchWorkspaceRow.add_suffix(switchWorkspaceSwitch);
+                row.add_row(switchWorkspaceRow);
+
+                // Minimized Switch
+                const minimizedRow = new Adw.ActionRow({
+                    title: 'Restore Minimized'
+                });
+                const minimizedSwitch = new Gtk.Switch({
+                    active: config.restore_minimized || false,
+                    valign: Gtk.Align.CENTER
+                });
+                minimizedSwitch.connect('notify::active', () => {
+                    updateConfig(config.wm_class, 'restore_minimized', minimizedSwitch.active);
+                });
+                minimizedRow.add_suffix(minimizedSwitch);
+                row.add_row(minimizedRow);
+
+                // Always on Top Switch
+                const aboveRow = new Adw.ActionRow({
+                    title: 'Restore Always on Top'
+                });
+                const aboveSwitch = new Gtk.Switch({
+                    active: config.restore_above || false,
+                    valign: Gtk.Align.CENTER
+                });
+                aboveSwitch.connect('notify::active', () => {
+                    updateConfig(config.wm_class, 'restore_above', aboveSwitch.active);
+                });
+                aboveRow.add_suffix(aboveSwitch);
+                row.add_row(aboveRow);
+
+                // Sticky Switch
+                const stickyRow = new Adw.ActionRow({
+                    title: 'Restore Always on Visible Workspace'
+                });
+                const stickySwitch = new Gtk.Switch({
+                    active: config.restore_sticky || false,
+                    valign: Gtk.Align.CENTER
+                });
+                stickySwitch.connect('notify::active', () => {
+                    updateConfig(config.wm_class, 'restore_sticky', stickySwitch.active);
+                });
+                stickyRow.add_suffix(stickySwitch);
+                row.add_row(stickyRow);
 
                 // Delete Button
                 const deleteRow = new Adw.ActionRow({
