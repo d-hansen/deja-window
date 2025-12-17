@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ZIP_NAME="deja-window.zip"
+ZIP_NAME="./temp/deja-window.zip"
 
 # Remove existing zip if it exists
 if [ -f "$ZIP_NAME" ]; then
@@ -10,7 +10,7 @@ fi
 # Zip the extension files
 # -r: recurse into directories
 # -x: exclude the following patterns
-zip -r "temp/$ZIP_NAME" . \
+zip -r "$ZIP_NAME" . \
     -x "*.git*" \
     -x ".gitignore" \
     -x "schemas/gschemas.compiled" \
