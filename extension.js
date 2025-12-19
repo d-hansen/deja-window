@@ -11,7 +11,7 @@ function debug(...args) {
 
 /**
  * DejaWindowExtension Class
- * The main class for the "Deja Window" extension.
+ * * The main class for the "Deja Window" extension.
  * This extension allows users to manage the size, position, and maximized state
  * of application windows. It supports:
  * - Saving and restoring window dimensions and position per WM_CLASS.
@@ -49,7 +49,7 @@ export default class DejaWindowExtension extends Extension {
         // Handle already existing windows (Crucial for X11 and reload)
         // We use an idle callback to ensure the loop starts after full initialization
         GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            // Meta.TabList.NORMAL includes standard managed windows
+            // Meta.TabList.NORMAL includes standard managed windows (filters out O-R windows usually)
             const windows = global.display.get_tab_list(Meta.TabList.NORMAL, null);
             for (const window of windows) {
                 this._onWindowCreated(window);
@@ -93,6 +93,9 @@ export default class DejaWindowExtension extends Extension {
 
         // Cleanup windows that are no longer in consideration
         for (const [window, handle] of this._handles) {
+            // Check validity before accessing props
+            if (!window || !window.get_workspace()) continue;
+
             const wmClass = window.get_wm_class();
             if (!this._getConfigForWindow(wmClass)) {
                 debug(`[DejaWindow] No longer managing: ${wmClass}`);
@@ -157,17 +160,14 @@ export default class DejaWindowExtension extends Extension {
         });
 
         // Disconnect actor signals
-        // We iterate over the stored objects to disconnect safely
         if (handle.actorSignals) {
             handle.actorSignals.forEach(({ id, actor }) => {
                 try {
-                    // Safety check: sometimes the actor is destroyed before we get here
-                    // Checking if it has the disconnect method is a basic sanity check
                     if (actor && typeof actor.disconnect === 'function') {
                         actor.disconnect(id);
                     }
                 } catch (e) {
-                    // Likely the actor is already finalized/destroyed, which is fine.
+                    // Likely the actor is already finalized/destroyed
                 }
             });
         }
@@ -175,8 +175,27 @@ export default class DejaWindowExtension extends Extension {
         this._handles.delete(window);
     }
 
+    // Helper to check if a window is valid for management (NOT override_redirect)
+    _isValidManagedWindow(window) {
+        // Skip override_redirect windows (tooltips, dnd, menus, etc)
+        // This prevents "assertion '!window->override_redirect' failed" errors
+        if (window.is_override_redirect()) return false;
+
+        // Optionally, ensure it is a normal window type (or Dialog/Utility if desired)
+        // Meta.WindowType.NORMAL = 0
+        const type = window.get_window_type();
+        if (type !== Meta.WindowType.NORMAL && type !== Meta.WindowType.DIALOG && type !== Meta.WindowType.UTILITY) {
+            return false;
+        }
+
+        return true;
+    }
+
     // Helper to handle window creation. Records WM_CLASS and checks if we should manage the window.
     _onWindowCreated(window) {
+        // First check: Is this a manage-able window?
+        if (!this._isValidManagedWindow(window)) return;
+
         // If we're already handling this window, exit early.
         if (this._handles.has(window)) return;
 
@@ -198,6 +217,9 @@ export default class DejaWindowExtension extends Extension {
 
     // Helper to check if we should manage a window. If so, sets up listeners.
     _checkAndSetup(window) {
+        // Double check validity before setup
+        if (!this._isValidManagedWindow(window)) return;
+
         const wmClass = window.get_wm_class();
         if (!wmClass) return;
 
@@ -374,6 +396,9 @@ export default class DejaWindowExtension extends Extension {
 
             // Check if the window still exists
             if (!window.get_workspace()) return GLib.SOURCE_REMOVE;
+
+            // Final Safety Check: Avoid Override Redirect windows
+            if (window.is_override_redirect()) return GLib.SOURCE_REMOVE;
 
             // Double check actor mapping just to be absolutely sure
             const actor = window.get_compositor_private();
