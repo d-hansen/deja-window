@@ -11,7 +11,7 @@ function debug(...args) {
 
 /**
  * DejaWindowExtension Class
- * * The main class for the "Deja Window" extension.
+ * The main class for the "Deja Window" extension.
  * This extension allows users to manage the size, position, and maximized state
  * of application windows. It supports:
  * - Saving and restoring window dimensions and position per WM_CLASS.
@@ -29,7 +29,7 @@ export default class DejaWindowExtension extends Extension {
         // Initialize settings from schema
         this._settings = this.getSettings();
 
-        // Map<Window, { signalIds: number[], actorSignalIds: number[], timeoutId: number }>
+        // Map<Window, { signalIds: number[], actorSignals: Array<{id: number, actor: Meta.WindowActor}>, timeoutId: number }>
         this._handles = new Map();
 
         // Cache for configurations to avoid parsing JSON on every window creation
@@ -156,12 +156,21 @@ export default class DejaWindowExtension extends Extension {
             }
         });
 
-        // Disconnect actor signals (if any)
-        // We can't easily iterate actors here as they might be gone, 
-        // but we assume the signals are destroyed with the actor.
-        // However, if we stored disconnect handlers, we would run them here.
-        // For simplicity in this structure, we rely on the actor cleanup behavior,
-        // but explicit disconnection would be cleaner if we tracked the actor instance.
+        // Disconnect actor signals
+        // We iterate over the stored objects to disconnect safely
+        if (handle.actorSignals) {
+            handle.actorSignals.forEach(({ id, actor }) => {
+                try {
+                    // Safety check: sometimes the actor is destroyed before we get here
+                    // Checking if it has the disconnect method is a basic sanity check
+                    if (actor && typeof actor.disconnect === 'function') {
+                        actor.disconnect(id);
+                    }
+                } catch (e) {
+                    // Likely the actor is already finalized/destroyed, which is fine.
+                }
+            });
+        }
 
         this._handles.delete(window);
     }
@@ -208,10 +217,11 @@ export default class DejaWindowExtension extends Extension {
         debug('[DejaWindow] Setup listeners for:', wmClass);
 
         const handle = {
-            signalIds: [],
-            timeoutId: 0,
-            wsTimeoutId: 0,
-            isRestoreApplied: false
+            signalIds: [],          // Store window signals
+            actorSignals: [],       // Store objects: { id: number, actor: Meta.WindowActor }
+            timeoutId: 0,           // Store timeout ID
+            wsTimeoutId: 0,         // Store workspace timeout ID
+            isRestoreApplied: false // Track if restore has been applied
         };
         this._handles.set(window, handle);
 
@@ -230,8 +240,6 @@ export default class DejaWindowExtension extends Extension {
 
         // EVENT-DRIVEN READY CHECK
         // Instead of timers, we use the Window Actor state.
-        // The Actor is the visual representation in the compositor.
-        // When the Actor is 'mapped', the window is truly ready to be manipulated (stack, geometry).
 
         const waitForActorMap = (actor) => {
             if (actor.mapped) {
@@ -242,15 +250,11 @@ export default class DejaWindowExtension extends Extension {
                 const mapId = actor.connect('notify::mapped', () => {
                     if (actor.mapped) {
                         debug('[DejaWindow] Actor became mapped:', wmClass);
-                        // We do not disconnect automatically here to avoid complexity with signalIds array management
-                        // relying on the once-check in triggerRestore is safe.
-                        // Or we can just let it fire.
                         triggerRestore();
                     }
                 });
-                // We don't easily track actor signals in the main handle (which tracks window signals),
-                // but since the actor life-cycle is tied to the window, this leak is minimal/negligible 
-                // for the duration of the window. Ideally, we would push to a separate list.
+                // Track this actor signal strictly
+                handle.actorSignals.push({ id: mapId, actor: actor });
             }
         };
 
@@ -259,11 +263,11 @@ export default class DejaWindowExtension extends Extension {
             waitForActorMap(actor);
         } else {
             debug('[DejaWindow] Waiting for Compositor Private (Actor):', wmClass);
+            // notify::compositor-private is a signal on the WINDOW, so it goes in signalIds
             const cpId = window.connect('notify::compositor-private', () => {
                 const newActor = window.get_compositor_private();
                 if (newActor) {
                     debug('[DejaWindow] Compositor Private (Actor) available:', wmClass);
-                    // We don't disconnect cpId to keep logic simple, but it fires rarely (once usually)
                     waitForActorMap(newActor);
                 }
             });
@@ -278,9 +282,6 @@ export default class DejaWindowExtension extends Extension {
             // If we haven't finished the initial restore, don't save anything!
             // Avoid overwriting saved state with partial coordinates during opening.
             if (!handle.isRestoreApplied) {
-                // If change happens before restore, it might be the window initializing.
-                // We could try to restore here too, as a fallback?
-                // triggerRestore(); // Optional: risky loop if not careful.
                 return;
             }
 
@@ -344,9 +345,6 @@ export default class DejaWindowExtension extends Extension {
         };
 
         // Connect to window signals
-        // We still listen to 'shown' as a fallback or for state tracking, 
-        // though the Actor logic above is the primary trigger for Restore.
-        //const idShown = window.connect('shown', () => triggerRestore());
 
         const idUnmap = window.connect('unmanaging', () => handleWindowUnmanaging());
         const idSize = window.connect('size-changed', () => handleWindowChange(window));
