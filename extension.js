@@ -11,7 +11,7 @@ function debug(...args) {
 
 /**
  * DejaWindowExtension Class
- * * The main class for the "Deja Window" extension.
+ * The main class for the "Deja Window" extension.
  * This extension allows users to manage the size, position, and maximized state
  * of application windows. It supports:
  * - Saving and restoring window dimensions and position per WM_CLASS.
@@ -271,7 +271,15 @@ export default class DejaWindowExtension extends Extension {
                 debug('[DejaWindow] Waiting for Actor map:', wmClass);
                 const mapId = actor.connect('notify::mapped', () => {
                     if (actor.mapped) {
-                        debug('[DejaWindow] Actor became mapped:', wmClass);
+                        debug('[DejaWindow] Actor became mapped (One-shot):', wmClass);
+
+                        // FIX: Disconnect immediately to avoid repeated calls in Overview
+                        actor.disconnect(mapId);
+
+                        // Clean up from our tracking array
+                        const idx = handle.actorSignals.findIndex(s => s.id === mapId);
+                        if (idx !== -1) handle.actorSignals.splice(idx, 1);
+
                         triggerRestore();
                     }
                 });
