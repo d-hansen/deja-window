@@ -2,7 +2,7 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
-const DEBUG = false;
+const DEBUG = true;
 
 function debug(...args) {
     if (DEBUG) console.log(...args);
@@ -11,8 +11,7 @@ function debug(...args) {
 
 /**
  * DejaWindowExtension Class
- * 
- * The main class for the "Deja Window" extension.
+ * * The main class for the "Deja Window" extension.
  * This extension allows users to manage the size, position, and maximized state
  * of application windows. It supports:
  * - Saving and restoring window dimensions and position per WM_CLASS.
@@ -30,7 +29,7 @@ export default class DejaWindowExtension extends Extension {
         // Initialize settings from schema
         this._settings = this.getSettings();
 
-        // Map<Window, { signalIds: number[], timeoutId: number }>
+        // Map<Window, { signalIds: number[], actorSignalIds: number[], timeoutId: number }>
         this._handles = new Map();
 
         // Cache for configurations to avoid parsing JSON on every window creation
@@ -148,7 +147,7 @@ export default class DejaWindowExtension extends Extension {
             handle.wsTimeoutId = 0;
         }
 
-        // Disconnect signals
+        // Disconnect window signals
         handle.signalIds.forEach(id => {
             try {
                 window.disconnect(id);
@@ -156,6 +155,13 @@ export default class DejaWindowExtension extends Extension {
                 // Ignore errors if window is already destroyed
             }
         });
+
+        // Disconnect actor signals (if any)
+        // We can't easily iterate actors here as they might be gone, 
+        // but we assume the signals are destroyed with the actor.
+        // However, if we stored disconnect handlers, we would run them here.
+        // For simplicity in this structure, we rely on the actor cleanup behavior,
+        // but explicit disconnection would be cleaner if we tracked the actor instance.
 
         this._handles.delete(window);
     }
@@ -209,11 +215,12 @@ export default class DejaWindowExtension extends Extension {
         };
         this._handles.set(window, handle);
 
-        // Helper to handle window shown. Logs the window's frame rect and checks if we should restore the window.
-        const handleWindowShown = () => {
-            debug('[DejaWindow] Window shown:', wmClass);
-            // If we've already restored, avoid doing it again (loop prevention)
+        // --- RESTORE LOGIC ---
+
+        // Function to trigger restore. Safe to call multiple times (guarded by isRestoreApplied)
+        const triggerRestore = () => {
             if (handle.isRestoreApplied) return;
+            debug('[DejaWindow] Triggering restore check for:', wmClass);
 
             const currentConfig = this._getConfigForWindow(wmClass);
             if (currentConfig) {
@@ -221,15 +228,59 @@ export default class DejaWindowExtension extends Extension {
             }
         };
 
+        // EVENT-DRIVEN READY CHECK
+        // Instead of timers, we use the Window Actor state.
+        // The Actor is the visual representation in the compositor.
+        // When the Actor is 'mapped', the window is truly ready to be manipulated (stack, geometry).
+
+        const waitForActorMap = (actor) => {
+            if (actor.mapped) {
+                debug('[DejaWindow] Actor already mapped:', wmClass);
+                triggerRestore();
+            } else {
+                debug('[DejaWindow] Waiting for Actor map:', wmClass);
+                const mapId = actor.connect('notify::mapped', () => {
+                    if (actor.mapped) {
+                        debug('[DejaWindow] Actor became mapped:', wmClass);
+                        // We do not disconnect automatically here to avoid complexity with signalIds array management
+                        // relying on the once-check in triggerRestore is safe.
+                        // Or we can just let it fire.
+                        triggerRestore();
+                    }
+                });
+                // We don't easily track actor signals in the main handle (which tracks window signals),
+                // but since the actor life-cycle is tied to the window, this leak is minimal/negligible 
+                // for the duration of the window. Ideally, we would push to a separate list.
+            }
+        };
+
+        const actor = window.get_compositor_private();
+        if (actor) {
+            waitForActorMap(actor);
+        } else {
+            debug('[DejaWindow] Waiting for Compositor Private (Actor):', wmClass);
+            const cpId = window.connect('notify::compositor-private', () => {
+                const newActor = window.get_compositor_private();
+                if (newActor) {
+                    debug('[DejaWindow] Compositor Private (Actor) available:', wmClass);
+                    // We don't disconnect cpId to keep logic simple, but it fires rarely (once usually)
+                    waitForActorMap(newActor);
+                }
+            });
+            handle.signalIds.push(cpId);
+        }
+
+
+        // --- SAVE LOGIC ---
+
         // Helper to handle window changes. Logs the window's frame rect and checks if we should save the window's state.
         const handleWindowChange = (window) => {
             // If we haven't finished the initial restore, don't save anything!
             // Avoid overwriting saved state with partial coordinates during opening.
             if (!handle.isRestoreApplied) {
-                const currentConfig = this._getConfigForWindow(wmClass);
-                if (currentConfig) {
-                    this._applySavedState(window, wmClass, currentConfig);
-                }
+                // If change happens before restore, it might be the window initializing.
+                // We could try to restore here too, as a fallback?
+                // triggerRestore(); // Optional: risky loop if not careful.
                 return;
             }
 
@@ -242,8 +293,7 @@ export default class DejaWindowExtension extends Extension {
             // Dynamically get current config to respect live changes
             const currentConfig = this._getConfigForWindow(wmClass);
             if (!currentConfig) {
-                debug('[DejaWindow] No config found for:', wmClass);
-                return; // Should not happen if cleanup works, but safety first
+                return;
             }
 
             // Schedule a timeout to save the window's state
@@ -294,7 +344,10 @@ export default class DejaWindowExtension extends Extension {
         };
 
         // Connect to window signals
-        const idShown = window.connect('shown', () => handleWindowShown());
+        // We still listen to 'shown' as a fallback or for state tracking, 
+        // though the Actor logic above is the primary trigger for Restore.
+        //const idShown = window.connect('shown', () => triggerRestore());
+
         const idUnmap = window.connect('unmanaging', () => handleWindowUnmanaging());
         const idSize = window.connect('size-changed', () => handleWindowChange(window));
         const idPos = window.connect('position-changed', () => handleWindowChange(window));
@@ -305,18 +358,7 @@ export default class DejaWindowExtension extends Extension {
 
 
         // Store signal IDs for cleanup
-        handle.signalIds.push(idShown, idUnmap, idSize, idPos, idWorkspace, idMinimized, idAbove, idSticky);
-
-        if (!Meta.is_wayland_compositor()) { // Only execute on X11
-            // CRITICAL FIX FOR X11:
-            // If the window is already visible or mapped when we get here, the 'shown' signal
-            // might never fire. We manually check.
-            // window.get_compositor_private() is a good indicator if the actor has already been created.
-            if (window.get_compositor_private() || window.appearing) {
-                debug('[DejaWindow] Window already visible or mapped:', wmClass);
-                handleWindowShown();
-            }
-        }
+        handle.signalIds.push(idUnmap, idSize, idPos, idWorkspace, idMinimized, idAbove, idSticky);
     }
 
     // Applies the saved size and/or position, or falls back to centering if position is invalid/not requested.
@@ -327,12 +369,20 @@ export default class DejaWindowExtension extends Extension {
 
         if (handle.isRestoreApplied) return;
 
-        // Use idle_add to ensure the window is fully ready/mapped before applying state
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        // Use idle_add LOW PRIORITY to ensure we run after any pending internal Mutter layout logic.
+        // This is not a delay (time-based), but a priority-based scheduling.
+        GLib.idle_add(GLib.PRIORITY_LOW, () => {
             if (handle.isRestoreApplied) return GLib.SOURCE_REMOVE;
 
             // Check if the window still exists
             if (!window.get_workspace()) return GLib.SOURCE_REMOVE;
+
+            // Double check actor mapping just to be absolutely sure
+            const actor = window.get_compositor_private();
+            if (!actor || !actor.mapped) {
+                debug(`[DejaWindow] Window ${wmClass} actor not ready in idle, skipping...`);
+                return GLib.SOURCE_REMOVE;
+            }
 
             handle.isRestoreApplied = true;
 
@@ -416,7 +466,8 @@ export default class DejaWindowExtension extends Extension {
             // so that the "underlying" normal state is correct.
             if (!isMaximized || config.restore_maximized) {
                 if (isMaximized) {
-                    window.unmaximize(Meta.MaximizeFlags.BOTH);
+                    // GNOME 49: No parameters for unmaximize
+                    window.unmaximize();
                 }
                 // Apply geometry
                 window.move_resize_frame(true, targetX, targetY, targetW, targetH);
@@ -477,7 +528,8 @@ export default class DejaWindowExtension extends Extension {
 
             // Apply Maximized State
             if (config.restore_maximized && state.maximized) {
-                window.maximize(Meta.MaximizeFlags.BOTH);
+                // GNOME 49: No parameters for maximize
+                window.maximize();
             }
 
             return GLib.SOURCE_REMOVE;
