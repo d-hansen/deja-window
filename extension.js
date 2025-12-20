@@ -153,7 +153,7 @@ export default class DejaWindowExtension extends Extension {
         // Disconnect window signals
         handle.signalIds.forEach(id => {
             try {
-                window.disconnect(id);
+                window?.disconnect(id);
             } catch (e) {
                 // Ignore errors if window is already destroyed
             }
@@ -163,9 +163,7 @@ export default class DejaWindowExtension extends Extension {
         if (handle.actorSignals) {
             handle.actorSignals.forEach(({ id, actor }) => {
                 try {
-                    if (actor && typeof actor.disconnect === 'function') {
-                        actor.disconnect(id);
-                    }
+                    actor?.disconnect(id);
                 } catch (e) {
                     // Likely the actor is already finalized/destroyed
                 }
