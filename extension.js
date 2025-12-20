@@ -148,12 +148,7 @@ export default class DejaWindowExtension extends Extension {
 
         // Disconnect any tracked actors
         handle.actors?.forEach(actor => {
-            // Ideally actors are valid, but disconnectObject is safe
-            try {
-                actor.disconnectObject(this);
-            } catch (e) {
-                // Actor might be destroyed already
-            }
+            actor.disconnectObject(this);
         });
 
         this._handles.delete(window);
