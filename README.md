@@ -14,7 +14,7 @@ In "vanilla" GNOME, windows typically open in the current workspace either cente
 ## **🚀 Features**
 
 * **Persistent Layouts**: Remembers the last known position, size (included workspace) and states (minimized and maximized, always on top and always on visible workspace) of your windows.  
-* **Granular Control**: Configure specific rules per application (via WM\_CLASS).  
+* **Granular Control**: Configure specific rules per application (via WM_CLASS or Window Title).  
 * **Flexible Matching**: Supports standard string matching and **Regular Expressions** (Regex) for advanced targeting.  
 * **Modular Restoration**: Choose to restore workspace, size, position, minimized and maximized state, always on top and always on visible workspace, independently for each app.  
 * **Smart Centering**: Automatically centers windows that are configured but haven't been saved yet.  
@@ -46,13 +46,13 @@ In "vanilla" GNOME, windows typically open in the current workspace either cente
 
 Open the extension preferences to start managing your windows.
 
-1. **Add New Application**:  
-   * Enter the WM\_CLASS of the application you want to manage.  
-   * You can find the class name in the dropdown (the extension auto-discovers running apps) or by using Alt+F2 and typing lg (Looking Glass) \> Windows.  
+1. **Add New Windows**:  
+   * Enter the WM_CLASS or Window Title of the window you want to manage.  
+   * You can find the class name or title in the dropdown (the extension auto-discovers running apps) or by using Alt+F2 and typing lg (Looking Glass) > Windows.  
    * Example: com.mitchellh.ghostty or org.gnome.TextEditor.  
 2. **Regex Mode**:  
    * Check "Regex" if you want to match multiple windows with a pattern.  
-   * Example: .\*ghostty.\* will match any window class containing "ghostty".  
+   * Example: WM_CLASS mode with .\*ghostty.\* will match any window class containing "ghostty", Window Title mode with ^DevTools.\* will match Chrome DevTools window.  
 3. **Toggles**:  
    * **Restore Size**: App will open with the dimensions it had when last closed.  
    * **Restore Position**: App will open at the exact X/Y coordinates it had when last closed.  
@@ -62,7 +62,7 @@ Open the extension preferences to start managing your windows.
 
 **Why isn't my window restoring?**
 
-* **Check the WM\_CLASS**: Ensure it matches exactly (or your Regex is correct).  
+* **Check the WM_CLASS/Title**: Ensure it matches exactly (or your Regex is correct).  
 * **Wayland Timing**: On Wayland, some applications may override GNOME's positioning hints during their own startup phase. Deja Window uses a delay mechanism to enforce your settings, but extremely slow apps might need a retry.  
 * **Custom Layouts**: Some applications (like certain IDEs or games) enforce their own window management logic that fights against the Window Manager. In these rare cases, the extension might not be able to force the position.
 * **Auto-maximization issue**: Sometimes, when opening large applications, the window will be automatically maximized without gaps. This might be due to a setting in Gnome which is adjustable using the dconf editor:
