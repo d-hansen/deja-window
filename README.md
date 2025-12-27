@@ -56,7 +56,12 @@ Open the extension preferences to start managing your windows.
 3. **Toggles**:  
    * **Restore Size**: App will open with the dimensions it had when last closed.  
    * **Restore Position**: App will open at the exact X/Y coordinates it had when last closed.  
-   * **Restore Maximized**: App will open maximized if it was closed in that state.
+   * **Restore Maximized**: App will open maximized if it was closed in that state.  
+   * **Restore Workspace**: App will open on the workspace it was last closed on.  
+   * **Switch to Workspace**: When the app opens, the desktop will automatically switch to that workspace.  
+   * **Restore Minimized**: App will open minimized if it was closed in that state.  
+   * **Restore Always on Top**: App will maintain its "Always on Top" status.  
+   * **Restore Always on Visible Workspace**: App will maintain its "Always on Visible Workspace" (sticky) status.
 
 ## **🛠 Troubleshooting**
 
