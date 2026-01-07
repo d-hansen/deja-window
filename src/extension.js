@@ -386,10 +386,11 @@ export default class DejaWindowExtension extends Extension {
                 // Get additional states
                 const workspace = window.get_workspace();
                 const workspaceIndex = workspace ? workspace.index() : -1;
+                const monitorIndex = window.get_monitor();
 
                 const currentIdentity = currentConfig.wm_class;
 
-                this._performSave(currentIdentity, rect.x, rect.y, rect.width, rect.height,
+                this._performSave(currentIdentity, monitorIndex, rect.x, rect.y, rect.width, rect.height,
                     currentConfig, isMaximized, workspaceIndex, window.minimized, window.above, window.on_all_workspaces);
 
                 handle.timeoutId = 0;
@@ -408,13 +409,14 @@ export default class DejaWindowExtension extends Extension {
                 // Get additional states
                 const workspace = window.get_workspace();
                 const workspaceIndex = workspace ? workspace.index() : -1;
+                const monitorIndex = window.get_monitor();
 
                 const currentConfig = this._getConfigForWindow(window);
 
                 if (currentConfig) {
                     const currentIdentity = currentConfig.wm_class;
 
-                    this._performSave(currentIdentity, rect.x, rect.y, rect.width, rect.height,
+                    this._performSave(currentIdentity, monitorIndex, rect.x, rect.y, rect.width, rect.height,
                         currentConfig, isMaximized, workspaceIndex, window.minimized, window.above, window.on_all_workspaces);
                 }
             }
@@ -478,6 +480,13 @@ export default class DejaWindowExtension extends Extension {
             // Safety checks for X11
             if (!state) return GLib.SOURCE_REMOVE;
 
+            let monitorIndex = window.get_monitor();
+            if ((config.restore_maximized || config.restore_pos) && state.monitor != monitorIndex) {
+              // Restore (Move) the window to the saved monitor
+              monitorIndex = state.monitor;
+              window.move_to_monitor(monitorIndex);
+            }
+
             const rect = window.get_frame_rect();
 
             // Retrieve target dimensions
@@ -493,7 +502,6 @@ export default class DejaWindowExtension extends Extension {
             // Retrieve target position
             let targetX = rect.x;
             let targetY = rect.y;
-            const monitorIndex = window.get_monitor();
             const workspace = window.get_workspace();
             if (!workspace) return GLib.SOURCE_REMOVE;
 
@@ -587,7 +595,7 @@ export default class DejaWindowExtension extends Extension {
     }
 
     // Saves the current window geometry to GSettings for persistence across sessions.
-    _performSave(identity, x, y, w, h, config, isMaximized, workspaceIndex, minimized, above, sticky) {
+    _performSave(identity, monitorIndex, x, y, w, h, config, isMaximized, workspaceIndex, minimized, above, sticky) {
         if (!this._settings) return;
 
         debug(`[DejaWindow] Saving State for ${identity}: ${w}x${h} @ ${x},${y}`);
@@ -628,6 +636,17 @@ export default class DejaWindowExtension extends Extension {
             changed = true;
         }
 
+        // If we are restoring either maximized or position and the monitor is different
+        // then we need to save the new monitor index
+        if ((config.restore_maximized || config.restore_pos) && savedStates[identity].monitor != monitorIndex) {
+            savedStates[identity].monitor = monitorIndex;
+            changed = true;
+        }
+
+        if (config.restore_sticky && savedStates[identity].sticky !== sticky) {
+            savedStates[identity].sticky = sticky;
+            changed = true;
+        }
         // If maximized, we only save the maximized flag, NOT the current coordinates (which would be full screen).
         // Otherwise, we would overwrite the "normal" dimensions with the full-screen ones.
         if (isMaximized) {
