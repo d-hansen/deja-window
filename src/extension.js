@@ -376,7 +376,7 @@ export default class DejaWindowExtension extends Extension {
 
             // Dynamically get current config to respect live changes
             const currentConfig = this._getConfigForWindow(window);
-            if (!currentConfig) return;
+            if (!currentConfig || currentConfig.locked === true) return;
 
             // Schedule a timeout to save the window's state
             handle.timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
@@ -413,7 +413,7 @@ export default class DejaWindowExtension extends Extension {
 
                 const currentConfig = this._getConfigForWindow(window);
 
-                if (currentConfig) {
+                if (currentConfig || currentConfig.locked !== true) {
                     const currentIdentity = currentConfig.wm_class;
 
                     this._performSave(currentIdentity, monitorIndex, rect.x, rect.y, rect.width, rect.height,
