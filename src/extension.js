@@ -413,7 +413,7 @@ export default class DejaWindowExtension extends Extension {
 
                 const currentConfig = this._getConfigForWindow(window);
 
-                if (currentConfig || currentConfig.locked !== true) {
+                if (currentConfig && currentConfig.locked !== true) {
                     const currentIdentity = currentConfig.wm_class;
 
                     this._performSave(currentIdentity, monitorIndex, rect.x, rect.y, rect.width, rect.height,
